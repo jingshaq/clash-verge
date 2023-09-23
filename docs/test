@@ -20,3 +20,114 @@ struct IConnectionsItem {
     u32 curUpload; // upload speed, calculate at runtime
     u32 curDownload; // download speed, calculate at runtime
 };
+
+
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/slab.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
+#include <linux/mutex.h>
+#include <linux/workqueue.h> // 引入工作队列头文件
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("Sample Kernel Module");
+
+struct my_record {
+    int fd;
+    int up;
+    int down;
+    struct list_head list;
+};
+
+LIST_HEAD(record_list);
+DEFINE_MUTEX(list_mutex); // 定义互斥锁
+
+// 声明工作队列及工作函数
+static struct workqueue_struct *my_workqueue;
+static void process_insert_work(struct work_struct *work);
+
+// 工作项结构体
+struct my_work {
+    struct work_struct work;
+    struct my_record *record;
+};
+
+static struct task_struct *kthread;
+
+static int send_records(void *data) {
+    while (!kthread_should_stop()) {
+        // 在这里进行发送和接收操作，不需要锁
+
+        // 休眠一段时间，定期检查链表
+        msleep(1000); // 休眠 1 秒
+    }
+    return 0;
+}
+
+// 添加记录到队列的函数，使用工作队列异步处理
+void add_record_to_queue(struct my_record *new_record) {
+    struct my_work *work_item;
+    work_item = kmalloc(sizeof(struct my_work), GFP_KERNEL);
+
+    if (!work_item) {
+        printk(KERN_ERR "Failed to allocate work item\n");
+        return;
+    }
+
+    INIT_WORK(&work_item->work, process_insert_work);
+    work_item->record = new_record;
+
+    queue_work(my_workqueue, &work_item->work);
+}
+
+// 工作队列处理函数，执行插入操作
+static void process_insert_work(struct work_struct *work) {
+    struct my_work *work_item = container_of(work, struct my_work, work);
+    struct my_record *record = work_item->record;
+
+    mutex_lock(&list_mutex); // 锁定互斥锁
+    list_add(&record->list, &record_list);
+    mutex_unlock(&list_mutex); // 解锁互斥锁
+
+    kfree(work_item); // 释放工作项
+}
+
+static int __init my_module_init(void) {
+    printk(KERN_INFO "Loading my_module\n");
+
+    // 创建工作队列
+    my_workqueue = create_workqueue("my_workqueue");
+    if (!my_workqueue) {
+        printk(KERN_ERR "Failed to create workqueue\n");
+        return -ENOMEM;
+    }
+
+    // 创建 kthread 来处理发送和接收操作
+    kthread = kthread_run(send_records, NULL, "my_kthread");
+
+    if (IS_ERR(kthread)) {
+        printk(KERN_ERR "Failed to create kthread\n");
+        destroy_workqueue(my_workqueue); // 销毁工作队列
+        return PTR_ERR(kthread);
+    }
+
+    return 0;
+}
+
+static void __exit my_module_exit(void) {
+    printk(KERN_INFO "Unloading my_module\n");
+
+    // 停止并等待 kthread 结束
+    kthread_stop(kthread);
+
+    // 销毁工作队列
+    flush_workqueue(my_workqueue);
+    destroy_workqueue(my_workqueue);
+}
+
+module_init(my_module_init);
+module_exit(my_module_exit);
