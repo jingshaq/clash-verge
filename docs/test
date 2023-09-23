@@ -1,0 +1,22 @@
+struct IConnectionsItem {
+    char id[128];
+    struct {
+        char network[128];
+        char type[128];
+        char host[128];
+        char sourceIP[128];
+        char sourcePort[128];
+        char destinationPort[128];
+        char destinationIP[128];
+        char process[128];
+        char processPath[128];
+    } metadata;
+    u32 upload;
+    u32 download;
+    char start[128];
+    char chains[128][128]; // 数组 of 字符串
+    char rule[128];
+    char rulePayload[128];
+    u32 curUpload; // upload speed, calculate at runtime
+    u32 curDownload; // download speed, calculate at runtime
+};
